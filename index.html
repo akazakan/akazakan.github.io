@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>野球用カメラ</title>
+
+<style>
+body {
+  margin: 0;
+  background: black;
+  overflow: hidden;
+  color: white;
+  font-family: sans-serif;
+}
+
+video, canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+}
+
+video { z-index: 1; }
+canvas { z-index: 2; }
+
+#controls {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  text-align: center;
+}
+
+button {
+  padding: 8px;
+  margin: 4px;
+}
+
+#record {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  border: none;
+  background: red;
+}
+
+input[type=range] {
+  width: 150px;
+}
+</style>
+</head>
+
+<body>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<div id="controls">
+  <button id="toggleZone">ゾーンON</button><br>
+
+  サイズ
+  <input type="range" min="30" max="200" value="100" id="size"><br>
+
+  縦
+  <input type="range" min="-30" max="30" value="0" id="posY">
+  横
+  <input type="range" min="-30" max="30" value="0" id="posX"><br>
+
+  <button id="switchCam">カメラ切替</button><br>
+  <button id="record"></button>
+</div>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let stream;
+let facing = "environment";
+let recorder;
+let chunks = [];
+
+let showZone = false;
+
+let baseWidth = 40;
+let baseHeight = 35;
+let scale = 1;
+let offsetX = 0;
+let offsetY = 0;
+
+/* カメラ起動 */
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing },
+    audio: true
+  });
+  video.srcObject = stream;
+}
+startCamera();
+
+/* canvasサイズ同期 */
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.onresize = resize;
+
+/* 描画ループ */
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // ★ これが超重要：カメラ映像をcanvasに描く
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  if (showZone) {
+    const w = canvas.width * (baseWidth * scale / 100);
+    const h = canvas.height * (baseHeight * scale / 100);
+    const x = (canvas.width - w) / 2 + offsetX * canvas.width / 100;
+    const y = (canvas.height - h) / 2 + offsetY * canvas.height / 100;
+
+    /* 枠（不透明） */
+    ctx.strokeStyle = "rgba(0,160,255,1.0)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, w, h);
+
+    /* 中（半透明） */
+    ctx.fillStyle = "rgba(0,160,255,0.5)";
+    ctx.fillRect(x, y, w, h);
+
+    /* 9分割 */
+    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + w/3, y);
+    ctx.lineTo(x + w/3, y + h);
+    ctx.moveTo(x + w*2/3, y);
+    ctx.lineTo(x + w*2/3, y + h);
+    ctx.moveTo(x, y + h/3);
+    ctx.lineTo(x + w, y + h/3);
+    ctx.moveTo(x, y + h*2/3);
+    ctx.lineTo(x + w, y + h*2/3);
+    ctx.stroke();
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+
+/* UI */
+toggleZone.onclick = () => showZone = !showZone;
+size.oninput = e => scale = e.target.value / 100;
+posX.oninput = e => offsetX = Number(e.target.value);
+posY.oninput = e => offsetY = Number(e.target.value);
+
+switchCam.onclick = () => {
+  facing = facing === "environment" ? "user" : "environment";
+  startCamera();
+};
+
+/* 録画（canvasを録画） */
+record.onclick = () => {
+  if (!recorder || recorder.state === "inactive") {
+    chunks = [];
+    const canvasStream = canvas.captureStream(60);
+    recorder = new MediaRecorder(canvasStream);
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      window.open(url);
+    };
+    recorder.start();
+    record.style.background = "darkred";
+  } else {
+    recorder.stop();
+    record.style.background = "red";
+  }
+};
+</script>
+
+</body>
+</html>
